@@ -30,14 +30,18 @@ def main() -> None:
     print("Sending test messages...")
 
     ok = notifier.send("🤖 <b>Top Gainers Bot</b> connected. "
-                       "You'll get alerts here.")
-    # sample of each alert type
+                       "You'll get alerts like these:")
+    # sample of each alert type (structured events, like the real bot sends)
     samples = [
-        "OPEN SHORT XYZUSDT @ 1.234 | 12x | stop 1.28 (3.7%) | liq 1.31",
-        "TP1 partial XYZUSDT @ 1.20, stop->breakeven",
-        "TP2 hit XYZUSDT @ 1.13 (pnl +2.40)",
-        "stop-loss ABCUSDT @ 0.95 (pnl -1.90)",
-        "DAILY STOP: down to 90.00 today. No new trades until tomorrow (UTC).",
+        {"type": "open", "symbol": "XYZUSDT", "price": 1.234, "leverage": 12,
+         "stop": 1.28, "stop_pct": 3.7, "tp1": 1.20, "tp2": 1.13,
+         "reason": "shooting star, RSI divergence", "balance": 100.0},
+        {"type": "tp1", "symbol": "XYZUSDT", "price": 1.20, "balance": 100.68},
+        {"type": "tp2", "symbol": "XYZUSDT", "price": 1.13, "pnl": 2.59,
+         "pnl_pct": 86, "balance": 102.59},
+        {"type": "stop", "symbol": "ABCUSDT", "price": 0.95, "pnl": -1.90,
+         "pnl_pct": -63, "balance": 100.69},
+        {"type": "daily_stop", "balance": 90.0},
     ]
     notifier.notify_events(samples)
     notifier.send_daily_summary()

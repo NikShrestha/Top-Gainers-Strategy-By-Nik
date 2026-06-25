@@ -34,6 +34,19 @@ def init_db() -> None:
                 halted_kill       INTEGER DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS logs (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts      TEXT,
+                level   TEXT,
+                type    TEXT,
+                message TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS trades (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol        TEXT,
@@ -127,17 +140,140 @@ def open_symbols() -> set[str]:
     return {t["symbol"] for t in get_open_trades()}
 
 
-def stats() -> dict:
-    """Aggregate performance, split by flat-base vs not, for Phase 8 analysis."""
+# --------------------------------------------------------------------------
+# logs (for the dashboard debug panel + audit trail)
+# --------------------------------------------------------------------------
+import datetime as _dt
+
+
+def log(level: str, type_: str, message: str) -> None:
+    """Record an event. level: info|trade|warn|error. Keeps the table trimmed."""
+    ts = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute("INSERT INTO logs (ts, level, type, message) VALUES (?,?,?,?)",
+                     (ts, level, type_, message))
+        # keep only the most recent 1000 rows
+        conn.execute(
+            "DELETE FROM logs WHERE id NOT IN "
+            "(SELECT id FROM logs ORDER BY id DESC LIMIT 1000)"
+        )
+
+
+def get_logs(limit: int = 200, level: str | None = None) -> list[dict]:
+    q = "SELECT * FROM logs"
+    params: tuple = ()
+    if level and level != "all":
+        q += " WHERE level = ?"
+        params = (level,)
+    q += " ORDER BY id DESC LIMIT ?"
+    params = (*params, limit)
+    with _connect() as conn:
+        return [dict(r) for r in conn.execute(q, params).fetchall()]
+
+
+# --------------------------------------------------------------------------
+# meta (runtime counters: cycles, errors, uptime, last cycle, btc regime…)
+# --------------------------------------------------------------------------
+def meta_get(key: str, default=None):
+    with _connect() as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def meta_set(key: str, value) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, str(value)),
+        )
+
+
+def meta_incr(key: str, by: int = 1) -> int:
+    cur = int(meta_get(key, 0) or 0) + by
+    meta_set(key, cur)
+    return cur
+
+
+# --------------------------------------------------------------------------
+# stats
+# --------------------------------------------------------------------------
+def _hold_minutes(r: dict) -> float:
+    if not r.get("open_time") or not r.get("close_time"):
+        return 0.0
+    try:
+        o = _dt.datetime.fromisoformat(r["open_time"])
+        c = _dt.datetime.fromisoformat(r["close_time"])
+        return (c - o).total_seconds() / 60
+    except Exception:
+        return 0.0
+
+
+def _max_drawdown(closed: list[dict], start_balance: float) -> float:
+    """Largest % drop from a running equity peak (worst dip you'd have felt)."""
+    bal = start_balance
+    peak = start_balance
+    worst = 0.0
+    for r in sorted(closed, key=lambda t: t["close_time"] or ""):
+        bal += r["pnl"]
+        peak = max(peak, bal)
+        if peak > 0:
+            worst = max(worst, (peak - bal) / peak * 100)
+    return worst
+
+
+def _streak(closed: list[dict]) -> int:
+    """Current consecutive win(+) or loss(-) run, most recent first."""
+    ordered = sorted(closed, key=lambda t: t["close_time"] or "", reverse=True)
+    streak = 0
+    for r in ordered:
+        win = r["pnl"] > 0
+        if streak == 0:
+            streak = 1 if win else -1
+        elif win and streak > 0:
+            streak += 1
+        elif not win and streak < 0:
+            streak -= 1
+        else:
+            break
+    return streak
+
+
+def stats(start_balance: float | None = None) -> dict:
+    """Aggregate performance, split by flat-base vs not, plus rich metrics."""
     closed = get_closed_trades(limit=100000)
+    if start_balance is None:
+        start_balance = get_account()["start_balance"]
+
     def agg(rows):
         n = len(rows)
-        wins = sum(1 for r in rows if r["pnl"] > 0)
-        pnl = sum(r["pnl"] for r in rows)
-        return {"trades": n, "wins": wins,
-                "win_rate": (wins / n * 100) if n else 0.0, "pnl": pnl}
+        wins = [r for r in rows if r["pnl"] > 0]
+        losses = [r for r in rows if r["pnl"] <= 0]
+        gross_win = sum(r["pnl"] for r in wins)
+        gross_loss = -sum(r["pnl"] for r in losses)
+        return {
+            "trades": n,
+            "wins": len(wins),
+            "losses": len(losses),
+            "win_rate": (len(wins) / n * 100) if n else 0.0,
+            "pnl": sum(r["pnl"] for r in rows),
+            "avg_win": (gross_win / len(wins)) if wins else 0.0,
+            "avg_loss": (-gross_loss / len(losses)) if losses else 0.0,
+            "profit_factor": (gross_win / gross_loss) if gross_loss > 0 else
+                (float("inf") if gross_win > 0 else 0.0),
+        }
+
     return {
         "all": agg(closed),
         "flat_base": agg([r for r in closed if r["flat_base"]]),
         "non_flat_base": agg([r for r in closed if not r["flat_base"]]),
+        "best": max((r["pnl"] for r in closed), default=0.0),
+        "worst": min((r["pnl"] for r in closed), default=0.0),
+        "fees": sum(r["fees"] for r in closed),
+        "avg_leverage": (sum(r["leverage"] for r in closed) / len(closed))
+            if closed else 0.0,
+        "avg_hold_min": (sum(_hold_minutes(r) for r in closed) / len(closed))
+            if closed else 0.0,
+        "max_drawdown": _max_drawdown(closed, start_balance),
+        "streak": _streak(closed),
     }

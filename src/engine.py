@@ -1,7 +1,10 @@
 """
 The bot's heartbeat: one full cycle of "manage what's open, then look for new
-shorts." Phase 7 will call run_once() on a timer; for now scripts call it
-directly so we can watch it work.
+shorts." Phase 7 calls run_once() on a timer.
+
+Every cycle it also records logs + runtime metadata (cycles, last cycle, errors,
+BTC regime, last scan size) so the dashboard can show exactly what the bot is
+doing and why.
 
 Order each cycle:
   1. day-reset + circuit-breaker checks
@@ -25,9 +28,18 @@ def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def _check_circuit_breakers(account: dict) -> list[str]:
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _error(type_: str, message: str) -> None:
+    db.log("error", type_, message)
+    db.meta_incr("errors")
+
+
+def _check_circuit_breakers(account: dict) -> list[dict]:
     """Apply day-reset, daily-loss breaker, and account kill switch."""
-    events = []
+    events: list[dict] = []
     today = _today()
     if account["day"] != today:
         db.update_account(day=today, day_start_balance=account["balance"],
@@ -39,25 +51,25 @@ def _check_circuit_breakers(account: dict) -> list[str]:
     if not account["halted_kill"] and account["balance"] <= kill_level:
         db.update_account(halted_kill=1)
         account["halted_kill"] = 1
-        events.append(f"KILL SWITCH: balance {account['balance']:.2f} <= "
-                      f"{kill_level:.2f}. All trading halted.")
+        events.append({"type": "kill_switch", "balance": account["balance"],
+                       "level": kill_level})
 
     daily_level = account["day_start_balance"] * (1 - config.DAILY_MAX_LOSS_PCT / 100)
     if not account["halted_daily"] and account["balance"] <= daily_level:
         db.update_account(halted_daily=1)
         account["halted_daily"] = 1
-        events.append(f"DAILY STOP: down to {account['balance']:.2f} today. "
-                      f"No new trades until tomorrow (UTC).")
+        events.append({"type": "daily_stop", "balance": account["balance"]})
     return events
 
 
-def run_once(verbose: bool = True, notify: bool = True) -> list[str]:
+def run_once(verbose: bool = True, notify: bool = True) -> list[dict]:
     db.init_db()
-    account = db.get_account()
+    if not db.meta_get("started_at"):
+        db.meta_set("started_at", _now())
 
+    account = db.get_account()
     prev_day = account["day"]
     events = _check_circuit_breakers(account)
-    # at the first cycle of a new UTC day, send a summary of where we stand
     if notify and prev_day and prev_day != _today():
         notifier.send_daily_summary()
 
@@ -65,13 +77,13 @@ def run_once(verbose: bool = True, notify: bool = True) -> list[str]:
     for trade in db.get_open_trades():
         try:
             price = bd.get_price(trade["symbol"])
-        except Exception:
+        except Exception as e:
+            _error("price", f"price fetch failed for {trade['symbol']}: {e}")
             continue
-        action = broker.manage_trade(trade, price, account)
-        if action:
-            events.append(action)
+        ev = broker.manage_trade(trade, price, account)
+        if ev:
+            events.append(ev)
 
-    # re-check breakers after realized P&L
     events += _check_circuit_breakers(account)
 
     # 2) open new trades?
@@ -82,9 +94,18 @@ def run_once(verbose: bool = True, notify: bool = True) -> list[str]:
         held = db.open_symbols()
         try:
             btc = bd.get_btc_regime(config.BTC_REGIME_LOOKBACK)
-        except Exception:
+            db.meta_set("btc_regime", f"{btc['label']} {btc['change_pct']:+.1f}%")
+        except Exception as e:
             btc = None
-        for c in scanner.scan():
+            _error("btc", f"BTC regime fetch failed: {e}")
+        try:
+            candidates = scanner.scan()
+        except Exception as e:
+            candidates = []
+            _error("scan", f"scan failed: {e}")
+        db.meta_set("last_scan_count", len(candidates))
+
+        for c in candidates:
             if room <= 0:
                 break
             if c.symbol in held:
@@ -96,12 +117,20 @@ def run_once(verbose: bool = True, notify: bool = True) -> list[str]:
             trade = broker.open_short(sig, flat, account)
             if trade:
                 room -= 1
-                events.append(
-                    f"OPEN SHORT {c.symbol} @ {sig.entry:.6g} | {trade['leverage']}x | "
-                    f"stop {sig.stop:.6g} ({sig.stop_pct:.1f}%) | "
-                    f"liq {trade['liq_price']:.6g} | {sig.summary()}"
-                )
+                events.append({
+                    "type": "open", "symbol": c.symbol, "price": sig.entry,
+                    "leverage": trade["leverage"], "stop": sig.stop,
+                    "stop_pct": sig.stop_pct, "tp1": sig.tp1, "tp2": sig.tp2,
+                    "liq": trade["liq_price"], "reason": ", ".join(sig.reasons),
+                    "balance": account["balance"],
+                })
 
+    # 3) runtime metadata + logging
+    db.meta_incr("cycles")
+    db.meta_set("last_cycle", _now())
+    db.meta_set("halted", 1 if halted else 0)
+    for ev in events:
+        db.log(ev.get("level", "trade"), ev["type"], notifier.plain(ev))
     if notify:
         notifier.notify_events(events)
 
@@ -110,8 +139,8 @@ def run_once(verbose: bool = True, notify: bool = True) -> list[str]:
         print(f"[{datetime.now(timezone.utc):%H:%M:%S} UTC] "
               f"balance ${acct['balance']:.2f} | open {len(db.get_open_trades())} | "
               f"halted_daily={acct['halted_daily']} kill={acct['halted_kill']}")
-        for e in events:
-            print("  -", e)
+        for ev in events:
+            print("  -", notifier.plain(ev))
         if not events:
             print("  - no action (no clean setups / nothing to manage)")
     return events

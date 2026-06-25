@@ -276,11 +276,18 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m scripts.selftest_broker
 ```
 
-**Open the web dashboard** (balance, P&L curve, open positions, history, watchlist):
+**Open the web dashboard** — tabs for Overview (win rate, profit factor, drawdown,
+streak, flat-base vs other), Positions, History, Watchlist, Logs/Debug, Settings:
 ```powershell
 .\.venv\Scripts\python.exe -m scripts.dashboard
 ```
 then open <http://localhost:8000>.
+
+**See the dashboard with sample data** (throwaway demo DB, doesn't touch your real account):
+```powershell
+$env:DB_PATH="data/_demo.db"; .\.venv\Scripts\python.exe -m scripts.seed_demo
+$env:DB_PATH="data/_demo.db"; .\.venv\Scripts\python.exe -m scripts.dashboard
+```
 
 **Send a test Telegram alert** (after filling in `.env`):
 ```powershell

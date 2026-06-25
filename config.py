@@ -4,6 +4,7 @@ Central configuration for the Top Gainers (short-the-pump) paper-trading bot.
 Every tunable number lives here so we can experiment without hunting through code.
 These are STARTING values -- we will tune them against real results.
 """
+import os
 
 # ---------------------------------------------------------------------------
 # Coin selection (the scanner)
@@ -99,7 +100,7 @@ TP1_CLOSE_FRACTION = 0.5       # close this fraction of the position at TP1
 TRAIL_PCT = 2.0                # after TP1, trail the stop this % above current price
 
 # --- database ---
-DB_PATH = "data/bot.db"
+DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 
 # --- run loop (cloud) ---
 LOOP_SECONDS = 60              # how often the engine runs a full cycle when deployed

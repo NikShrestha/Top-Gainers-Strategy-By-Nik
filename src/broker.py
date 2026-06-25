@@ -123,10 +123,23 @@ def _minutes_open(trade: dict) -> float:
     return (datetime.now(timezone.utc) - opened).total_seconds() / 60
 
 
-def manage_trade(trade: dict, price: float, account: dict) -> str | None:
+def _event(type_: str, trade: dict, price: float, account: dict) -> dict:
+    return {
+        "type": type_,
+        "symbol": trade["symbol"],
+        "price": price,
+        "entry": trade["entry"],
+        "pnl": trade["pnl"],
+        "pnl_pct": trade["pnl"] / trade["margin"] * 100 if trade["margin"] else 0,
+        "balance": account["balance"],
+        "leverage": trade["leverage"],
+    }
+
+
+def manage_trade(trade: dict, price: float, account: dict) -> dict | None:
     """
-    Walk one position forward given the latest price. Returns a short string
-    describing any action taken (for notifications/logging), else None.
+    Walk one position forward given the latest price. Returns a structured event
+    dict describing any action taken (for notifications/logging), else None.
 
     Adverse exits (liquidation, stop) are checked first so we never give the
     trade the benefit of the doubt within a candle.
@@ -136,18 +149,18 @@ def manage_trade(trade: dict, price: float, account: dict) -> str | None:
     # 1) liquidation backstop (should never trigger -- stop is inside it)
     if price >= trade["liq_price"]:
         _close_portion(trade, qty, trade["liq_price"], "LIQUIDATED", account, final=True)
-        return f"LIQUIDATED {trade['symbol']} @ {trade['liq_price']:.6g}"
+        return _event("liquidation", trade, trade["liq_price"], account)
 
     # 2) stop loss (may have been moved to breakeven / trailed)
     if price >= trade["stop"]:
-        reason = "trail-stop" if trade["tp1_hit"] else "stop-loss"
-        _close_portion(trade, qty, trade["stop"], reason, account, final=True)
-        return f"{reason} {trade['symbol']} @ {trade['stop']:.6g} (pnl {trade['pnl']:+.2f})"
+        type_ = "trail_stop" if trade["tp1_hit"] else "stop"
+        _close_portion(trade, qty, trade["stop"], type_, account, final=True)
+        return _event(type_, trade, trade["stop"], account)
 
     # 3) final target
     if price <= trade["tp2"]:
         _close_portion(trade, qty, trade["tp2"], "TP2", account, final=True)
-        return f"TP2 hit {trade['symbol']} @ {trade['tp2']:.6g} (pnl {trade['pnl']:+.2f})"
+        return _event("tp2", trade, trade["tp2"], account)
 
     # 4) first target -> take partial, move stop to breakeven
     if not trade["tp1_hit"] and price <= trade["tp1"]:
@@ -156,7 +169,7 @@ def manage_trade(trade: dict, price: float, account: dict) -> str | None:
         trade["tp1_hit"] = 1
         trade["stop"] = trade["entry"]  # breakeven
         db.update_trade(trade["id"], tp1_hit=1, stop=trade["entry"])
-        return f"TP1 partial {trade['symbol']} @ {trade['tp1']:.6g}, stop->breakeven"
+        return _event("tp1", trade, trade["tp1"], account)
 
     # 5) trailing stop after TP1 (lock in more as price keeps dropping)
     if trade["tp1_hit"]:
@@ -167,7 +180,7 @@ def manage_trade(trade: dict, price: float, account: dict) -> str | None:
 
     # 6) time stop (only before TP1 -- a trade going nowhere)
     if not trade["tp1_hit"] and _minutes_open(trade) >= config.TIME_STOP_MINUTES:
-        _close_portion(trade, qty, price, "time-stop", account, final=True)
-        return f"time-stop {trade['symbol']} @ {price:.6g} (pnl {trade['pnl']:+.2f})"
+        _close_portion(trade, qty, price, "time_stop", account, final=True)
+        return _event("time_stop", trade, price, account)
 
     return None
