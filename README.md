@@ -276,6 +276,17 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m scripts.selftest_broker
 ```
 
+**Open the web dashboard** (balance, P&L curve, open positions, history, watchlist):
+```powershell
+.\.venv\Scripts\python.exe -m scripts.dashboard
+```
+then open <http://localhost:8000>.
+
+**Send a test Telegram alert** (after filling in `.env`):
+```powershell
+.\.venv\Scripts\python.exe -m scripts.test_telegram
+```
+
 ---
 
 ## 9. Roadmap / status
@@ -286,9 +297,9 @@ python -m venv .venv
 | 2 | Smarter scanner + ranking | ✅ done |
 | 3 | Entry/exit signal engine (short) | ✅ done |
 | 4 | Paper broker + 20x cross + risk + SQLite | ✅ done |
-| 5 | Telegram notifications | ⬜ next |
-| 6 | Web dashboard | ⬜ |
-| 7 | Deploy 24/7 (free cloud VM) | ⬜ |
+| 5 | Telegram notifications | ✅ done |
+| 6 | Web dashboard (FastAPI) | ✅ done |
+| 7 | Deploy 24/7 (free cloud VM) | ⬜ next |
 | 8 | Run for days, observe, tune | ⬜ |
 
 ---
