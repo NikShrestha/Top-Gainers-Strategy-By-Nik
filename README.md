@@ -299,7 +299,7 @@ then open <http://localhost:8000>.
 | 4 | Paper broker + 20x cross + risk + SQLite | ✅ done |
 | 5 | Telegram notifications | ✅ done |
 | 6 | Web dashboard (FastAPI) | ✅ done |
-| 7 | Deploy 24/7 (free cloud VM) | ⬜ next |
+| 7 | Deploy 24/7 (Render free, no card) — see [DEPLOY.md](DEPLOY.md) | 🟡 ready to deploy |
 | 8 | Run for days, observe, tune | ⬜ |
 
 ---

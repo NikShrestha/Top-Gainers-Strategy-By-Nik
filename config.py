@@ -100,3 +100,6 @@ TRAIL_PCT = 2.0                # after TP1, trail the stop this % above current 
 
 # --- database ---
 DB_PATH = "data/bot.db"
+
+# --- run loop (cloud) ---
+LOOP_SECONDS = 60              # how often the engine runs a full cycle when deployed

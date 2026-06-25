@@ -1,0 +1,18 @@
+# Render Blueprint -- one-click deploy of the bot on Render's FREE tier.
+# In Render: New -> Blueprint -> connect this repo. Then set the two secret env
+# vars (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) in the dashboard.
+services:
+  - type: web
+    name: top-gainers-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false   # set this yourself in the Render dashboard (secret)
+      - key: TELEGRAM_CHAT_ID
+        sync: false   # set this yourself in the Render dashboard (secret)

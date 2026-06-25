@@ -1,0 +1,13 @@
+# For any server where you have Docker (a VPS, home server, Raspberry Pi).
+# Persists the database to ./data and auto-restarts the bot.
+#   docker compose up -d --build
+services:
+  bot:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
