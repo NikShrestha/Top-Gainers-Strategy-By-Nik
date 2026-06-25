@@ -16,6 +16,7 @@ import config
 from . import binance_data as bd
 from . import broker
 from . import database as db
+from . import notifier
 from . import scanner
 from . import signals
 
@@ -50,10 +51,15 @@ def _check_circuit_breakers(account: dict) -> list[str]:
     return events
 
 
-def run_once(verbose: bool = True) -> list[str]:
+def run_once(verbose: bool = True, notify: bool = True) -> list[str]:
     db.init_db()
     account = db.get_account()
+
+    prev_day = account["day"]
     events = _check_circuit_breakers(account)
+    # at the first cycle of a new UTC day, send a summary of where we stand
+    if notify and prev_day and prev_day != _today():
+        notifier.send_daily_summary()
 
     # 1) manage open trades
     for trade in db.get_open_trades():
@@ -95,6 +101,9 @@ def run_once(verbose: bool = True) -> list[str]:
                     f"stop {sig.stop:.6g} ({sig.stop_pct:.1f}%) | "
                     f"liq {trade['liq_price']:.6g} | {sig.summary()}"
                 )
+
+    if notify:
+        notifier.notify_events(events)
 
     if verbose:
         acct = db.get_account()
