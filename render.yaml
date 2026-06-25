@@ -6,6 +6,7 @@ services:
     name: top-gainers-bot
     runtime: python
     plan: free
+    region: singapore        # IMPORTANT: NOT a US region -- Binance blocks US IPs (HTTP 451)
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     healthCheckPath: /

@@ -19,6 +19,11 @@ _perp_cache: set[str] | None = None
 
 def _get(path: str, params: dict | None = None):
     r = _session.get(FAPI + path, params=params, timeout=15)
+    if r.status_code == 451:
+        raise RuntimeError(
+            "Binance blocked this server's region (HTTP 451). The bot must run "
+            "OUTSIDE the US — redeploy in Singapore or Frankfurt."
+        )
     r.raise_for_status()
     return r.json()
 

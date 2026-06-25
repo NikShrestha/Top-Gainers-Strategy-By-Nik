@@ -31,6 +31,13 @@ Keep both handy for Part B.
    *(If Blueprint isn't offered: New + → **Web Service** → pick the repo →
    Runtime **Python 3**, Build `pip install -r requirements.txt`, Start
    `python main.py`, Plan **Free**.)*
+
+   > 🌏 **CRITICAL — pick a non-US region: `Singapore` (or `Frankfurt`).**
+   > Binance **blocks US IP addresses** (you'll get `HTTP 451` and the bot can't
+   > fetch any market data). The `render.yaml` already requests **Singapore**.
+   > If you create the service manually, set the **Region** dropdown to Singapore
+   > yourself. Region can't be changed later — if your service is already in a US
+   > region, **delete it and recreate it in Singapore.**
 4. Before the first deploy, open **Environment** and add two variables:
    - `TELEGRAM_BOT_TOKEN` = your BotFather token
    - `TELEGRAM_CHAT_ID` = your numeric id
