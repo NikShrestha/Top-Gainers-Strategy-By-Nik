@@ -62,12 +62,9 @@ so it never sleeps.
 
 That's it — the bot now runs 24/7 and trades on its own.
 
-> ⚠️ **Persistence note:** Render's *free* tier has no permanent disk, so trade
-> history can reset if Render redeploys/restarts the instance. The balance and
-> history live in `data/bot.db`, which is fine across normal runs but not
-> guaranteed across redeploys. For a paper test this is acceptable (Telegram
-> keeps your alert log). Want permanent history? Ask me to wire in a **free Neon
-> Postgres** database (also no card).
+> ⚠️ **Persistence note:** Render's *free* tier has no permanent disk, so on a
+> redeploy the SQLite history resets to $100. To keep data **forever**, connect a
+> free Neon Postgres database — see **Part F** below.
 
 ---
 
@@ -95,6 +92,28 @@ The dashboard is on port 8000; the database persists in `./data`; the bot
 auto-restarts on crash or reboot.
 
 ---
+
+## Part F — Permanent data with Neon (free, no card)
+
+By default the bot stores everything in a SQLite file, which Render wipes on
+redeploy. Connect a **free Neon Postgres** database and your balance + trade
+history survive forever. The bot auto-detects it — set one env var and you're done.
+
+1. Go to <https://neon.tech> → **Sign up with GitHub** (free, no card).
+2. Create a project (it makes a database automatically).
+3. On the project dashboard, click **Connect** / **Connection string** and copy it.
+   It looks like:
+   `postgresql://user:password@ep-xxxx.region.aws.neon.tech/dbname?sslmode=require`
+4. In Render → your service → **Environment** → add:
+   - `DATABASE_URL` = that whole connection string
+5. **Save changes.** Render redeploys, and the bot now reads/writes Neon. From
+   now on, redeploys keep all your data.
+
+That's it — no code changes needed. To go back to local SQLite, just remove the
+`DATABASE_URL` variable.
+
+> Tip: if you want to wipe and start fresh later, use the dashboard **Admin →
+> Reset balance** button.
 
 ## After it's deployed
 
