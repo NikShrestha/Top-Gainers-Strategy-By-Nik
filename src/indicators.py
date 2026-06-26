@@ -90,17 +90,20 @@ def recent_swing_high(df: pd.DataFrame, lookback: int = 10) -> float:
 def detect_base_and_pump(
     df: pd.DataFrame,
     base_lookback: int = 24,
-    max_base_range_pct: float = 6.0,
+    max_base_range_pct: float = 7.0,
     min_pump_pct: float = 20.0,
+    pump_max_candles: int = 96,
 ) -> dict | None:
     """
-    Find the recent pump and measure how 'flat' the base before it was.
+    Find the recent pump and measure how 'flat' the base RIGHT BEFORE it was.
 
     Logic:
-      1. pump peak  = highest high in the window.
-      2. run-up start = lowest low BEFORE that peak (the launchpad).
-      3. base = the candles just before the run-up start.
-      4. flat if the base's price range is small relative to its average price.
+      1. pump peak   = highest high in the window.
+      2. launchpad   = lowest low within `pump_max_candles` BEFORE the peak.
+         (Using the recent window -- not the global low -- so we anchor to where
+         *this* pump actually started, not some older unrelated dip.)
+      3. base        = the candles just before the launchpad.
+      4. flat if the base's high-to-low range is small vs its average price.
 
     Returns metrics + booleans, or None if there isn't enough data / no pump.
     """
@@ -112,23 +115,29 @@ def detect_base_and_pump(
     closes = df["close"].to_numpy()
 
     pump_idx = int(np.argmax(highs))
-    if pump_idx == 0:
-        return None  # peak is the very first candle -> no run-up captured
+    if pump_idx < 5:
+        return None  # peak too early -> no run-up captured
 
-    base_end = int(np.argmin(lows[:pump_idx]))  # bottom right before the pump
-    base_start = max(0, base_end - base_lookback)
-    base = closes[base_start : base_end + 1]
-    if len(base) < 3:
+    # launchpad = lowest low within the recent pump window before the peak
+    seg_start = max(0, pump_idx - pump_max_candles)
+    run_start = seg_start + int(np.argmin(lows[seg_start:pump_idx]))
+
+    # base = the candles just before the launchpad
+    base_start = max(0, run_start - base_lookback)
+    if run_start - base_start < 3:
         return None
+    base_high = float(highs[base_start:run_start].max())
+    base_low = float(lows[base_start:run_start].min())
+    base_mid = float(closes[base_start:run_start].mean())
 
-    base_mid = float(base.mean())
-    base_range_pct = (float(base.max()) - float(base.min())) / base_mid * 100
-    pump_pct = (highs[pump_idx] - lows[base_end]) / lows[base_end] * 100
+    base_range_pct = (base_high - base_low) / base_mid * 100
+    pump_pct = (highs[pump_idx] - lows[run_start]) / lows[run_start] * 100
 
     return {
         "pump_idx": pump_idx,
+        "run_start": run_start,
         "base_start": base_start,
-        "base_end": base_end,
+        "base_end": run_start,
         "base_price": base_mid,
         "base_range_pct": base_range_pct,
         "pump_pct": pump_pct,

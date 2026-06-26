@@ -56,7 +56,8 @@ def analyze_symbol(g: dict, funding: dict[str, float] | None = None) -> Candidat
     last_vwap = float(vwap.iloc[-1])
     dist = (last - last_vwap) / last_vwap * 100
     base = ind.detect_base_and_pump(
-        df, config.BASE_LOOKBACK, config.MAX_BASE_RANGE_PCT, config.MIN_PUMP_PCT
+        df, config.BASE_LOOKBACK, config.MAX_BASE_RANGE_PCT, config.MIN_PUMP_PCT,
+        config.PUMP_MAX_CANDLES,
     )
 
     c = Candidate(

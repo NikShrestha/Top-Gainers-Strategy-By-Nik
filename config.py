@@ -27,8 +27,11 @@ KLINES_LIMIT = 200             # how many candles to pull per coin
 # Flat-base detection (your core edge)
 # ---------------------------------------------------------------------------
 BASE_LOOKBACK = 24             # candles of "base" to inspect before the run-up
-MAX_BASE_RANGE_PCT = 6.0       # base counts as "flat" if its range <= this %
+MAX_BASE_RANGE_PCT = 7.0       # base counts as "flat" if its range <= this %
 MIN_PUMP_PCT = 20.0            # the move off the base must be at least this big
+PUMP_MAX_CANDLES = 96          # the recent pump's launchpad is the lowest low within
+                               # this many candles before the peak (24h on 15m) --
+                               # NOT the global low, so we measure the RIGHT base
 
 # ---------------------------------------------------------------------------
 # Over-extension / entry confirmation (Phase 3 will use these)
