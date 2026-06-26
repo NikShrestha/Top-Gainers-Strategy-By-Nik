@@ -231,7 +231,13 @@ def api_admin(action: str, x_admin_key: str = Header(None)) -> JSONResponse:
     return JSONResponse({"ok": False, "error": "Unknown action."}, status_code=400)
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+def healthz():
+    """Lightweight uptime check (returns 200 to GET and HEAD)."""
+    return {"ok": True}
+
+
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def index() -> str:
     return _PAGE
 

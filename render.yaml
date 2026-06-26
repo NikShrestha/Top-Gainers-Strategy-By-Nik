@@ -9,7 +9,7 @@ services:
     region: singapore        # IMPORTANT: NOT a US region -- Binance blocks US IPs (HTTP 451)
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
-    healthCheckPath: /
+    healthCheckPath: /healthz
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
