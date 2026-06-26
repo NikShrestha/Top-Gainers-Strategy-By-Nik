@@ -66,8 +66,8 @@ ROUND_NUMBER_TOL_PCT = 1.0
 # Hide the stop just ABOVE the recent swing high (resistance) instead of a fixed %.
 SWING_HIGH_LOOKBACK = 10       # candles to find the high we tuck the stop above
 STOP_BUFFER_PCT = 0.5          # place the stop this % above that high
-MAX_STOP_PCT = 3.5             # cap: at 20x, liquidation is ~5% away, so keep the
-                               # stop tighter than that (fires before liquidation)
+MAX_STOP_PCT = 6.0             # wider stop so trades survive the pump's noise before
+                               # the dump; dynamic leverage drops to keep it safe
 
 # Dynamic leverage: video 1 warns 20x often insta-stops on fast coins. Pick the
 # highest leverage <= LEVERAGE that keeps liquidation comfortably beyond the stop.
@@ -86,9 +86,14 @@ STARTING_BALANCE = 100.0       # paper money, USDT
 MARGIN_PER_TRADE_PCT = 3.0     # margin committed per trade = 3% of balance (~$3)
 MAX_CONCURRENT_TRADES = 3      # never hold more than 3 shorts at once (user setting)
 
-# Leverage mode: user wants a FIXED 20x. (Dynamic leverage would lower it on
-# volatile coins for safety; fixed 20x is riskier -> stops out more often.)
-USE_FIXED_LEVERAGE = True
+# Leverage mode: DYNAMIC after analysis showed fixed 20x caused 55% stop-outs.
+# Dynamic uses up to 20x when the stop is tight enough to be safe, and auto-lowers
+# leverage on volatile coins so a wider stop can survive the pump's noise.
+USE_FIXED_LEVERAGE = False
+
+# Cooldown: after a trade on a coin closes, don't re-enter that same coin for this
+# long (stops the bot grinding fees re-shorting one coin 16x like it did to MAGMA).
+SYMBOL_COOLDOWN_MINUTES = 45
 
 # --- the wall in front of liquidation ---
 # At 20x, liquidation is ~5% of adverse price move away. We hard-stop BEFORE that

@@ -92,7 +92,7 @@ def run_once(verbose: bool = True, notify: bool = True) -> list[dict]:
     open_now = db.get_open_trades()
     room = config.MAX_CONCURRENT_TRADES - len(open_now)
     if not halted and room > 0:
-        held = db.open_symbols()
+        held = db.open_symbols() | db.symbols_recently_closed(config.SYMBOL_COOLDOWN_MINUTES)
         try:
             btc = bd.get_btc_regime(config.BTC_REGIME_LOOKBACK)
             db.meta_set("btc_regime", f"{btc['label']} {btc['change_pct']:+.1f}%")

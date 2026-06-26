@@ -157,6 +157,14 @@ def open_symbols() -> set[str]:
     return {t["symbol"] for t in get_open_trades()}
 
 
+def symbols_recently_closed(minutes: float) -> set[str]:
+    """Symbols whose most recent trade closed within the last `minutes` (cooldown)."""
+    cutoff = (_dt.datetime.now(_dt.timezone.utc)
+              - _dt.timedelta(minutes=minutes)).isoformat()
+    return {r["symbol"] for r in get_closed_trades(limit=300)
+            if r["close_time"] and r["close_time"] >= cutoff}
+
+
 # --------------------------------------------------------------------------
 # admin actions
 # --------------------------------------------------------------------------

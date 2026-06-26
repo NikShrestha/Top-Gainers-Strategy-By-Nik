@@ -164,16 +164,18 @@ def manage_trade(trade: dict, price: float, account: dict) -> dict | None:
     """
     qty = trade["remaining_qty"]
 
-    # 1) liquidation backstop (should never trigger -- stop is inside it)
-    if price >= trade["liq_price"]:
-        _close_portion(trade, qty, trade["liq_price"], "LIQUIDATED", account, final=True)
-        return _event("liquidation", trade, trade["liq_price"], account)
-
-    # 2) stop loss (may have been moved to breakeven / trailed)
+    # 1) stop loss FIRST -- a real resting stop order fills at the stop as price
+    #    rises through it, BEFORE the (further-away) liquidation price. Checking
+    #    this first means a fast move closes at the stop, not as a liquidation.
     if price >= trade["stop"]:
         type_ = "trail_stop" if trade["tp1_hit"] else "stop"
         _close_portion(trade, qty, trade["stop"], type_, account, final=True)
         return _event(type_, trade, trade["stop"], account)
+
+    # 2) liquidation backstop (should basically never trigger now)
+    if price >= trade["liq_price"]:
+        _close_portion(trade, qty, trade["liq_price"], "LIQUIDATED", account, final=True)
+        return _event("liquidation", trade, trade["liq_price"], account)
 
     # 3) final target
     if price <= trade["tp2"]:
