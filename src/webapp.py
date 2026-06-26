@@ -347,7 +347,9 @@ _PAGE = r"""
 
   <!-- POSITIONS -->
   <div class="panel" id="p-positions"><div class="card"><h2 class="sec">Open positions</h2>
-    <table><thead><tr><th>Symbol</th><th>Lev</th><th>Entry</th><th>Now</th>
+    <p class="muted" style="margin:4px 0 10px">“Bet” = your margin (3% of balance). At the shown leverage it controls
+      a position worth Bet × leverage. “Unreal.” is current profit/loss, NOT the bet.</p>
+    <table><thead><tr><th>Symbol</th><th>Bet</th><th>Lev</th><th>Position</th><th>Entry</th><th>Now</th>
       <th>Unreal.</th><th>%</th><th>→Stop</th><th>→TP2</th><th>→Liq</th><th>Age</th></tr></thead>
       <tbody id="opent"></tbody></table></div></div>
 
@@ -481,12 +483,13 @@ async function refresh(){
 
     // positions
     $('#opent').innerHTML=s.open.length?s.open.map(t=>
-      `<tr><td>${t.symbol}</td><td>${t.leverage}x</td><td>${pr(t.entry)}</td><td>${pr(t.current)}</td>
+      `<tr><td>${t.symbol}</td><td><b>$${(+t.margin).toFixed(2)}</b></td><td>${t.leverage}x</td>
+       <td>$${(+t.notional).toFixed(0)}</td><td>${pr(t.entry)}</td><td>${pr(t.current)}</td>
        <td class="${cls(t.unrealized)}">${money(t.unrealized)}</td>
        <td class="${cls(t.unrealized_pct)}">${t.unrealized_pct.toFixed(0)}%</td>
        <td>${t.to_stop_pct.toFixed(1)}%</td><td>${t.to_tp2_pct.toFixed(1)}%</td>
        <td>${t.to_liq_pct.toFixed(1)}%</td><td>${dur(t.minutes_open)}</td></tr>`).join('')
-      :'<tr><td colspan="10" class="muted">No open positions right now</td></tr>';
+      :'<tr><td colspan="12" class="muted">No open positions right now</td></tr>';
 
     // history
     $('#histt').innerHTML=s.closed.length?s.closed.map(t=>
