@@ -9,6 +9,7 @@ Run:  python -m scripts.dashboard   (or: uvicorn src.webapp:app --host 0.0.0.0 -
 """
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime, timezone
 
@@ -26,6 +27,17 @@ app = FastAPI(title="Top Gainers Bot")
 
 _watchlist_cache: dict = {"ts": 0.0, "data": []}
 _WATCHLIST_TTL = 60
+
+
+def _clean(o):
+    """Recursively replace NaN/Infinity floats with None so JSON never breaks."""
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _clean(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_clean(v) for v in o]
+    return o
 
 
 def _minutes_since(iso: str | None) -> float | None:
@@ -127,7 +139,7 @@ def api_state() -> JSONResponse:
         "admin_enabled": bool(config.ADMIN_KEY),
     }
 
-    return JSONResponse({
+    return JSONResponse(_clean({
         "account": acct,
         "net": acct["balance"] - acct["start_balance"],
         "net_pct": (acct["balance"] - acct["start_balance"]) / acct["start_balance"] * 100,
@@ -137,7 +149,7 @@ def api_state() -> JSONResponse:
         "equity": _equity_curve(acct["start_balance"]),
         "meta": meta,
         "settings": _settings_snapshot(),
-    })
+    }))
 
 
 @app.get("/api/logs")
@@ -175,8 +187,8 @@ def api_watchlist() -> JSONResponse:
         except Exception as e:
             rows = [{"symbol": "scan error", "note": str(e), "checks": []}]
         _watchlist_cache.update(ts=now, data=rows)
-    return JSONResponse({"watchlist": _watchlist_cache["data"],
-                         "age": round(now - _watchlist_cache["ts"])})
+    return JSONResponse(_clean({"watchlist": _watchlist_cache["data"],
+                                "age": round(now - _watchlist_cache["ts"])}))
 
 
 @app.post("/api/admin/{action}")
@@ -448,7 +460,7 @@ async function refresh(){
 
     // overview metrics
     curve(s.equity);
-    $('#pf').textContent=isFinite(st.all.profit_factor)?st.all.profit_factor.toFixed(2):'∞';
+    $('#pf').textContent=(st.all.profit_factor==null)?(st.all.trades?'∞':'—'):st.all.profit_factor.toFixed(2);
     $('#avgw').textContent=money(st.all.avg_win);
     $('#avgl').textContent=money(st.all.avg_loss);
     $('#best').textContent=money(st.best);
@@ -464,7 +476,7 @@ async function refresh(){
 
     const cmp=(n,d)=>`<tr><td>${n}</td><td>${d.trades}</td><td>${d.win_rate.toFixed(0)}%</td>
       <td class="${cls(d.pnl)}">${money(d.pnl)}</td>
-      <td>${isFinite(d.profit_factor)?d.profit_factor.toFixed(2):'∞'}</td></tr>`;
+      <td>${d.profit_factor==null?(d.trades?'∞':'—'):d.profit_factor.toFixed(2)}</td></tr>`;
     $('#fbcmp').innerHTML=cmp('🟢 Flat-base',st.flat_base)+cmp('⚪ Other',st.non_flat_base);
 
     // positions

@@ -283,8 +283,8 @@ def stats(start_balance: float | None = None) -> dict:
             "pnl": sum(r["pnl"] for r in rows),
             "avg_win": (gross_win / len(wins)) if wins else 0.0,
             "avg_loss": (-gross_loss / len(losses)) if losses else 0.0,
-            "profit_factor": (gross_win / gross_loss) if gross_loss > 0 else
-                (float("inf") if gross_win > 0 else 0.0),
+            # None means "infinite" (wins but no losses yet) -> avoids inf in JSON
+            "profit_factor": round(gross_win / gross_loss, 2) if gross_loss > 0 else None,
         }
 
     return {
