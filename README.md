@@ -233,7 +233,9 @@ All in `config.py`. Starting values are sensible but **made to be tuned**.
 - `MAX_STOP_PCT` (6) — never plan a stop wider than this.
 - `LEVERAGE_LIQ_BUFFER` (1.5) — liquidation must be ≥ stop distance × this.
 - `STOP_LOSS_PCT` (3) — legacy fallback (structure stop is primary).
-- `TP1_PCT` (3) / `TP2_PCT` (8) — take-profit targets (favorable % move).
+- `TP1_R` (1) / `TP2_R` (2) — cash-out targets as $ = multiples of margin (≈$3 then $6).
+- `RUNNER_TIMEOUT_MINUTES` (30) — after TP1, cash out the rest if TP2 is too slow.
+- `USE_FIXED_LEVERAGE` (True) — always use 20x (vs. dynamic/safer).
 - `TP1_CLOSE_FRACTION` (0.5) — fraction closed at TP1.
 - `TRAIL_PCT` (2) / `TRAIL_AFTER_TP1` (True) — trailing-stop behavior.
 

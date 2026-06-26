@@ -6,6 +6,10 @@ These are STARTING values -- we will tune them against real results.
 """
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()  # make .env values available to os.getenv below
+
 # ---------------------------------------------------------------------------
 # Coin selection (the scanner)
 # ---------------------------------------------------------------------------
@@ -59,7 +63,8 @@ ROUND_NUMBER_TOL_PCT = 1.0
 # Hide the stop just ABOVE the recent swing high (resistance) instead of a fixed %.
 SWING_HIGH_LOOKBACK = 10       # candles to find the high we tuck the stop above
 STOP_BUFFER_PCT = 0.5          # place the stop this % above that high
-MAX_STOP_PCT = 6.0             # cap: never plan a stop wider than this
+MAX_STOP_PCT = 3.5             # cap: at 20x, liquidation is ~5% away, so keep the
+                               # stop tighter than that (fires before liquidation)
 
 # Dynamic leverage: video 1 warns 20x often insta-stops on fast coins. Pick the
 # highest leverage <= LEVERAGE that keeps liquidation comfortably beyond the stop.
@@ -76,7 +81,11 @@ MARGIN_MODE = "cross"          # cross margin (shared account balance)
 # ---------------------------------------------------------------------------
 STARTING_BALANCE = 100.0       # paper money, USDT
 MARGIN_PER_TRADE_PCT = 3.0     # margin committed per trade = 3% of balance (~$3)
-MAX_CONCURRENT_TRADES = 2      # never hold more than 2 shorts at once (user setting)
+MAX_CONCURRENT_TRADES = 3      # never hold more than 3 shorts at once (user setting)
+
+# Leverage mode: user wants a FIXED 20x. (Dynamic leverage would lower it on
+# volatile coins for safety; fixed 20x is riskier -> stops out more often.)
+USE_FIXED_LEVERAGE = True
 
 # --- the wall in front of liquidation ---
 # At 20x, liquidation is ~5% of adverse price move away. We hard-stop BEFORE that
@@ -84,9 +93,13 @@ MAX_CONCURRENT_TRADES = 2      # never hold more than 2 shorts at once (user set
 STOP_LOSS_PCT = 3.0            # exit short if price rises this % against us (< ~5% liq)
 LIQUIDATION_BUFFER_PCT = 5.0   # approx adverse move that would liquidate at this leverage
 
-# --- take profit (ride the dump back toward the base) ---
-TP1_PCT = 3.0                  # first target: +3% favorable move -> take partial, move stop to breakeven
-TP2_PCT = 8.0                  # second target: ride further toward the base
+# --- take profit, in DOLLARS (as multiples of the per-trade margin) ---
+# With $3 margin: TP1_R=1.0 -> cash out at +$3, TP2_R=2.0 -> +$6 (your request).
+# These scale automatically as the balance (and margin) grows.
+TP1_R = 1.0                    # first cash-out = 1x margin profit (~$3)
+TP2_R = 2.0                    # second cash-out = 2x margin profit (~$6)
+RUNNER_TIMEOUT_MINUTES = 30    # after TP1, if TP2 is taking too long, cash out the
+                               # rest and move on to the next opportunity
 TRAIL_AFTER_TP1 = True         # trail the stop once TP1 is hit
 
 # --- circuit breakers (so a bad day can't drain the account) ---
@@ -104,3 +117,8 @@ DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 
 # --- run loop (cloud) ---
 LOOP_SECONDS = 60              # how often the engine runs a full cycle when deployed
+
+# --- admin controls ---
+# Protects the dashboard admin buttons (reset balance, close all, pause...).
+# Set this to a secret word in your .env / Render env vars to enable admin.
+ADMIN_KEY = os.getenv("ADMIN_KEY", "")

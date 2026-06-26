@@ -87,7 +87,8 @@ def run_once(verbose: bool = True, notify: bool = True) -> list[dict]:
     events += _check_circuit_breakers(account)
 
     # 2) open new trades?
-    halted = account["halted_kill"] or account["halted_daily"]
+    paused = int(db.meta_get("paused", 0) or 0)
+    halted = account["halted_kill"] or account["halted_daily"] or paused
     open_now = db.get_open_trades()
     room = config.MAX_CONCURRENT_TRADES - len(open_now)
     if not halted and room > 0:
@@ -120,7 +121,9 @@ def run_once(verbose: bool = True, notify: bool = True) -> list[dict]:
                 events.append({
                     "type": "open", "symbol": c.symbol, "price": sig.entry,
                     "leverage": trade["leverage"], "stop": sig.stop,
-                    "stop_pct": sig.stop_pct, "tp1": sig.tp1, "tp2": sig.tp2,
+                    "stop_pct": sig.stop_pct, "tp1": trade["tp1"], "tp2": trade["tp2"],
+                    "tp1_usd": config.TP1_R * trade["margin"],
+                    "tp2_usd": config.TP2_R * trade["margin"],
                     "liq": trade["liq_price"], "reason": ", ".join(sig.reasons),
                     "balance": account["balance"],
                 })

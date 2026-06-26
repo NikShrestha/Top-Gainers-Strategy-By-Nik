@@ -75,6 +75,11 @@ def init_db() -> None:
             );
             """
         )
+        # migration: add columns that may be missing on older databases
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(trades)")}
+        if "tp1_time" not in cols:
+            conn.execute("ALTER TABLE trades ADD COLUMN tp1_time TEXT")
+
         row = conn.execute("SELECT id FROM account WHERE id = 1").fetchone()
         if row is None:
             conn.execute(
@@ -138,6 +143,25 @@ def get_closed_trades(limit: int = 100) -> list[dict]:
 
 def open_symbols() -> set[str]:
     return {t["symbol"] for t in get_open_trades()}
+
+
+# --------------------------------------------------------------------------
+# admin actions
+# --------------------------------------------------------------------------
+def reset_account() -> None:
+    """Fresh start: wipe trades, set balance back to start, clear halts/pause."""
+    acct = get_account()
+    with _connect() as conn:
+        conn.execute("DELETE FROM trades")
+    update_account(balance=acct["start_balance"],
+                   day_start_balance=acct["start_balance"],
+                   halted_daily=0, halted_kill=0)
+    meta_set("paused", 0)
+
+
+def clear_logs() -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM logs")
 
 
 # --------------------------------------------------------------------------

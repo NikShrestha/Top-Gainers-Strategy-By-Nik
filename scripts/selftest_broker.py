@@ -55,10 +55,10 @@ def main():
     start = db.get_account()["balance"]
     print(f"Starting balance: ${start:.2f}")
 
-    # winning path: drift down through TP1 then TP2
+    # winning path: drift down through TP1 ($) then TP2 ($)
     scenario("WIN: TP1 partial + breakeven + TP2",
              make_signal("WINUSDT", 100, 104, 97, 92),
-             prices=[99, 98, 96.8, 94, 91.5])
+             prices=[99, 97, 94.5, 92, 89.5])
 
     # losing path: price rips up into the stop
     scenario("LOSS: stop-loss hit",

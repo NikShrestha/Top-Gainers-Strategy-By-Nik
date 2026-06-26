@@ -27,13 +27,14 @@ def _fee(notional: float) -> float:
 
 def choose_leverage(stop_pct: float) -> int:
     """
-    Pick the highest leverage (<= configured max) that keeps the liquidation
-    price comfortably beyond the stop. Implements video 1's lesson that 20x
-    insta-stops volatile coins: a wider stop forces lower leverage.
+    Leverage for the trade.
 
-    Liquidation for a short is ~ (100 / leverage)% away from entry. We require
-    that distance to be at least stop_pct * LEVERAGE_LIQ_BUFFER.
+    If USE_FIXED_LEVERAGE (user's choice), always use the configured leverage
+    (20x). Otherwise pick the highest leverage that keeps liquidation beyond the
+    stop (video 1's lesson that 20x insta-stops volatile coins).
     """
+    if config.USE_FIXED_LEVERAGE:
+        return config.LEVERAGE
     stop_pct = max(stop_pct, 0.1)
     max_by_stop = math.floor(100 / (stop_pct * config.LEVERAGE_LIQ_BUFFER))
     return max(1, min(config.LEVERAGE, max_by_stop))
@@ -56,6 +57,10 @@ def open_short(sig: ShortSignal, flat_base: bool, account: dict) -> dict | None:
     fee_open = _fee(notional)
     liq = liquidation_price(sig.entry, leverage)
 
+    # take-profits as $ targets: TP1_R*margin profit needs a R/leverage price move
+    tp1 = sig.entry * (1 - config.TP1_R / leverage)
+    tp2 = sig.entry * (1 - config.TP2_R / leverage)
+
     trade = {
         "symbol": sig.symbol,
         "side": "short",
@@ -69,8 +74,8 @@ def open_short(sig: ShortSignal, flat_base: bool, account: dict) -> dict | None:
         "notional": notional,
         "liq_price": liq,
         "stop": sig.stop,
-        "tp1": sig.tp1,
-        "tp2": sig.tp2,
+        "tp1": tp1,
+        "tp2": tp2,
         "tp1_hit": 0,
         "pnl": -fee_open,
         "fees": fee_open,
@@ -123,6 +128,12 @@ def _minutes_open(trade: dict) -> float:
     return (datetime.now(timezone.utc) - opened).total_seconds() / 60
 
 
+def _minutes_since(iso: str | None) -> float:
+    if not iso:
+        return 0.0
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() / 60
+
+
 def _event(type_: str, trade: dict, price: float, account: dict) -> dict:
     return {
         "type": type_,
@@ -134,6 +145,13 @@ def _event(type_: str, trade: dict, price: float, account: dict) -> dict:
         "balance": account["balance"],
         "leverage": trade["leverage"],
     }
+
+
+def force_close(trade: dict, price: float, account: dict) -> dict:
+    """Admin: close a position right now at the given price."""
+    _close_portion(trade, trade["remaining_qty"], price, "manual_close",
+                   account, final=True)
+    return _event("manual_close", trade, price, account)
 
 
 def manage_trade(trade: dict, price: float, account: dict) -> dict | None:
@@ -162,13 +180,15 @@ def manage_trade(trade: dict, price: float, account: dict) -> dict | None:
         _close_portion(trade, qty, trade["tp2"], "TP2", account, final=True)
         return _event("tp2", trade, trade["tp2"], account)
 
-    # 4) first target -> take partial, move stop to breakeven
+    # 4) first $ target -> cash out part, move stop to break-even
     if not trade["tp1_hit"] and price <= trade["tp1"]:
         part = trade["qty"] * config.TP1_CLOSE_FRACTION
         _close_portion(trade, part, trade["tp1"], "TP1-partial", account, final=False)
         trade["tp1_hit"] = 1
-        trade["stop"] = trade["entry"]  # breakeven
-        db.update_trade(trade["id"], tp1_hit=1, stop=trade["entry"])
+        trade["stop"] = trade["entry"]  # break-even: this trade can't lose now
+        trade["tp1_time"] = _now()
+        db.update_trade(trade["id"], tp1_hit=1, stop=trade["entry"],
+                        tp1_time=trade["tp1_time"])
         return _event("tp1", trade, trade["tp1"], account)
 
     # 5) trailing stop after TP1 (lock in more as price keeps dropping)
@@ -178,7 +198,12 @@ def manage_trade(trade: dict, price: float, account: dict) -> dict | None:
             trade["stop"] = trailed
             db.update_trade(trade["id"], stop=trailed)
 
-    # 6) time stop (only before TP1 -- a trade going nowhere)
+    # 6) runner timeout: TP1 banked but TP2 is taking too long -> cash out, move on
+    if trade["tp1_hit"] and _minutes_since(trade.get("tp1_time")) >= config.RUNNER_TIMEOUT_MINUTES:
+        _close_portion(trade, qty, price, "runner_timeout", account, final=True)
+        return _event("runner_timeout", trade, price, account)
+
+    # 7) time stop (only before TP1 -- a trade going nowhere)
     if not trade["tp1_hit"] and _minutes_open(trade) >= config.TIME_STOP_MINUTES:
         _close_portion(trade, qty, price, "time_stop", account, final=True)
         return _event("time_stop", trade, price, account)

@@ -72,14 +72,16 @@ def format_event(ev: dict) -> str:
     balline = f"\n💰 Balance: <b>${bal:.2f}</b>" if bal is not None else ""
 
     if t == "open":
+        t1 = f" (+${ev['tp1_usd']:.2f})" if ev.get("tp1_usd") else ""
+        t2 = f" (+${ev['tp2_usd']:.2f})" if ev.get("tp2_usd") else ""
         return (
             f"🔻 <b>NEW SHORT OPENED</b>\n"
             f"Coin: <b>{sym}</b>\n"
             f"Sold at <code>{_p(ev['price'])}</code> with <b>{ev['leverage']}x</b>\n"
             f"🛑 Stop loss: <code>{_p(ev['stop'])}</code> "
             f"(−{ev.get('stop_pct', 0):.1f}% if it goes the wrong way)\n"
-            f"🎯 Target 1: <code>{_p(ev['tp1'])}</code>\n"
-            f"🎯 Target 2: <code>{_p(ev['tp2'])}</code>\n"
+            f"🎯 Cash out 1: <code>{_p(ev['tp1'])}</code>{t1}\n"
+            f"🎯 Cash out 2: <code>{_p(ev['tp2'])}</code>{t2}\n"
             f"📋 Why: {ev.get('reason') or '—'}"
             + balline
         )
@@ -118,6 +120,19 @@ def format_event(ev: dict) -> str:
             f"Trade went nowhere, exited at <code>{_p(ev['price'])}</code>\n"
             f"Result: <b>{_money(pnl)}</b>" + balline
         )
+    if t == "runner_timeout":
+        return (
+            f"⏭ <b>CASHED OUT, MOVING ON — {sym}</b>\n"
+            f"Cash-out 2 was taking too long, so I banked it at "
+            f"<code>{_p(ev['price'])}</code> to free up for the next setup.\n"
+            f"Result: <b>{_money(pnl)}</b>" + balline
+        )
+    if t == "manual_close":
+        return (
+            f"✋ <b>CLOSED MANUALLY — {sym}</b>\n"
+            f"Closed at <code>{_p(ev['price'])}</code>\n"
+            f"Result: <b>{_money(pnl)}</b>" + balline
+        )
     if t == "liquidation":
         return (
             f"💥 <b>LIQUIDATED — {sym}</b>\n"
@@ -148,7 +163,8 @@ def plain(ev: dict) -> str:
         return (f"OPEN SHORT {sym} @ {_p(ev['price'])} {ev['leverage']}x "
                 f"stop {_p(ev['stop'])} ({ev.get('stop_pct',0):.1f}%) "
                 f"[{ev.get('reason','')}]")
-    if t in ("tp1", "tp2", "stop", "trail_stop", "time_stop", "liquidation"):
+    if t in ("tp1", "tp2", "stop", "trail_stop", "time_stop", "liquidation",
+             "runner_timeout"):
         return f"{t.upper()} {sym} @ {_p(ev['price'])} pnl {ev.get('pnl',0):+.2f}"
     if t == "daily_stop":
         return f"DAILY STOP at ${ev.get('balance',0):.2f}"

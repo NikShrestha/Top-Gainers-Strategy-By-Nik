@@ -12,11 +12,12 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 
 import config
 from . import binance_data as bd
+from . import broker
 from . import database as db
 from . import scanner
 from . import signals
@@ -67,15 +68,17 @@ def _settings_snapshot() -> dict:
             "Confirmations needed": config.MIN_CONFIRMATIONS,
         },
         "Leverage & risk": {
-            "Max leverage": f"{config.LEVERAGE}x",
+            "Leverage": f"{config.LEVERAGE}x "
+                        f"({'fixed' if config.USE_FIXED_LEVERAGE else 'dynamic'})",
             "Margin mode": config.MARGIN_MODE,
             "Margin per trade": f"{config.MARGIN_PER_TRADE_PCT}%",
             "Max open trades": config.MAX_CONCURRENT_TRADES,
         },
         "Exits": {
             "Max stop distance": f"{config.MAX_STOP_PCT}%",
-            "Target 1": f"{config.TP1_PCT}%",
-            "Target 2": f"{config.TP2_PCT}%",
+            "Cash out 1": f"+{config.TP1_R:g}x margin (~${config.TP1_R*3:.0f})",
+            "Cash out 2": f"+{config.TP2_R:g}x margin (~${config.TP2_R*3:.0f})",
+            "Runner timeout": f"{config.RUNNER_TIMEOUT_MINUTES} min",
             "Trailing": f"{config.TRAIL_PCT}%",
             "Time stop": f"{config.TIME_STOP_MINUTES} min",
         },
@@ -120,6 +123,8 @@ def api_state() -> JSONResponse:
         "uptime_min": _minutes_since(db.meta_get("started_at")),
         "btc_regime": db.meta_get("btc_regime", "—"),
         "last_scan_count": int(db.meta_get("last_scan_count", 0) or 0),
+        "paused": int(db.meta_get("paused", 0) or 0),
+        "admin_enabled": bool(config.ADMIN_KEY),
     }
 
     return JSONResponse({
@@ -149,18 +154,69 @@ def api_watchlist() -> JSONResponse:
         try:
             for c in scanner.scan():
                 sig = signals.evaluate(c)
+                checks = [
+                    {"name": "Flat base", "ok": "flat-base" in c.flags},
+                    {"name": "Over-extended",
+                     "ok": "not over-extended/overbought" not in sig.blockers},
+                    {"name": "Not in uptrend", "ok": "STRONG-UPTREND" not in c.flags},
+                    {"name": "Funding ok",
+                     "ok": not any("funding" in b for b in sig.blockers)},
+                    {"name": "BTC ok", "ok": not any("BTC" in b for b in sig.blockers)},
+                    {"name": f"Signals {len(sig.reasons)}/{config.MIN_CONFIRMATIONS}",
+                     "ok": len(sig.reasons) >= config.MIN_CONFIRMATIONS},
+                ]
                 rows.append({
                     "symbol": c.symbol, "score": c.score, "change_pct": c.change_pct,
                     "rsi": round(c.rsi), "dist_vwap": round(c.dist_vwap_pct, 1),
                     "funding": c.funding, "flags": c.flags,
                     "shortable": sig.should_short, "note": sig.summary(),
-                    "blockers": sig.blockers, "reasons": sig.reasons,
+                    "blockers": sig.blockers, "reasons": sig.reasons, "checks": checks,
                 })
         except Exception as e:
-            rows = [{"symbol": "scan error", "note": str(e)}]
+            rows = [{"symbol": "scan error", "note": str(e), "checks": []}]
         _watchlist_cache.update(ts=now, data=rows)
     return JSONResponse({"watchlist": _watchlist_cache["data"],
                          "age": round(now - _watchlist_cache["ts"])})
+
+
+@app.post("/api/admin/{action}")
+def api_admin(action: str, x_admin_key: str = Header(None)) -> JSONResponse:
+    if not config.ADMIN_KEY:
+        return JSONResponse(
+            {"ok": False, "error": "Admin disabled — set the ADMIN_KEY env var."},
+            status_code=403)
+    if x_admin_key != config.ADMIN_KEY:
+        return JSONResponse({"ok": False, "error": "Wrong admin key."}, status_code=403)
+
+    db.init_db()
+    if action == "reset":
+        db.reset_account()
+        db.log("info", "admin", "Account reset to starting balance.")
+        return JSONResponse({"ok": True, "msg": "Balance reset and trades cleared."})
+    if action == "clear_logs":
+        db.clear_logs()
+        return JSONResponse({"ok": True, "msg": "Logs cleared."})
+    if action == "pause":
+        db.meta_set("paused", 1)
+        db.log("info", "admin", "Trading paused by admin.")
+        return JSONResponse({"ok": True, "msg": "Paused — no new trades will open."})
+    if action == "resume":
+        db.meta_set("paused", 0)
+        db.log("info", "admin", "Trading resumed by admin.")
+        return JSONResponse({"ok": True, "msg": "Resumed."})
+    if action == "close_all":
+        acct = db.get_account()
+        n = 0
+        for t in db.get_open_trades():
+            try:
+                price = bd.get_price(t["symbol"])
+            except Exception:
+                price = t["entry"]
+            broker.force_close(t, price, acct)
+            n += 1
+        db.log("info", "admin", f"Admin closed {n} open trade(s).")
+        return JSONResponse({"ok": True, "msg": f"Closed {n} open trade(s)."})
+    return JSONResponse({"ok": False, "error": "Unknown action."}, status_code=400)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -249,6 +305,7 @@ _PAGE = r"""
     <div class="tab" data-p="watchlist">👀 Watchlist</div>
     <div class="tab" data-p="logs">🐞 Logs &amp; Debug</div>
     <div class="tab" data-p="settings">⚙️ Settings</div>
+    <div class="tab" data-p="admin">🛠️ Admin</div>
   </div>
 
   <!-- OVERVIEW -->
@@ -291,8 +348,10 @@ _PAGE = r"""
   <!-- WATCHLIST -->
   <div class="panel" id="p-watchlist"><div class="card">
     <h2 class="sec">Watchlist — top gainers, ranked <span id="wlage" class="muted"></span></h2>
-    <div class="scroll"><table><thead><tr><th>Symbol</th><th>Score</th><th>24h%</th>
-      <th>RSI</th><th>vsVWAP</th><th>Flags</th><th>Verdict</th></tr></thead>
+    <p class="muted" style="margin:4px 0 10px">Green ✓ = condition met, red ✗ = why it's NOT being shorted.
+      A coin is only shorted when every check is green.</p>
+    <div class="scroll"><table><thead><tr><th>Symbol</th><th>24h%</th><th>RSI</th>
+      <th>Verdict</th><th>Why (checks)</th></tr></thead>
       <tbody id="wlt"></tbody></table></div></div></div>
 
   <!-- LOGS -->
@@ -310,6 +369,25 @@ _PAGE = r"""
   <!-- SETTINGS -->
   <div class="panel" id="p-settings"><div class="card"><h2 class="sec">Current settings (config.py)</h2>
     <div class="setgrid" id="settings"></div></div></div>
+
+  <!-- ADMIN -->
+  <div class="panel" id="p-admin"><div class="card">
+    <h2 class="sec">Admin controls</h2>
+    <p class="muted" id="adminstate"></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 14px">
+      <input id="adminkey" type="password" placeholder="enter admin key"
+        style="padding:9px 12px;background:var(--card2);border:1px solid var(--line);border-radius:9px;color:var(--fg);min-width:200px">
+      <button class="tab" onclick="saveKey()">💾 Save key</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="tab" onclick="admin('pause')">⏸ Pause trading</button>
+      <button class="tab" onclick="admin('resume')">▶️ Resume</button>
+      <button class="tab" onclick="admin('close_all')">✋ Close all trades</button>
+      <button class="tab" onclick="admin('reset')">♻️ Reset balance</button>
+      <button class="tab" onclick="admin('clear_logs')">🧹 Clear logs</button>
+    </div>
+    <p id="adminmsg" style="margin-top:12px"></p>
+  </div></div>
 </div>
 <script>
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
@@ -358,7 +436,11 @@ async function refresh(){
     let stp=$('#status');
     if(a.halted_kill){stp.textContent='⛔ SAFETY STOP';stp.className='pill bad';}
     else if(a.halted_daily){stp.textContent='🟧 DAILY STOP';stp.className='pill warn';}
+    else if(m.paused){stp.textContent='⏸ PAUSED';stp.className='pill warn';}
     else{stp.textContent='🟢 RUNNING';stp.className='pill ok';}
+    $('#adminstate').textContent=m.admin_enabled?
+      'Admin is enabled. Enter your key once, then use the buttons.':
+      '⚠️ Admin is OFF. Set an ADMIN_KEY env var on the server to enable these buttons.';
     $('#btc').textContent='BTC '+m.btc_regime;
     $('#cyc').textContent=m.cycles+' cycles';
     const ep=$('#err');ep.textContent=m.errors+' errors';ep.className='pill '+(m.errors>0?'bad':'muted');
@@ -413,17 +495,32 @@ async function refresh(){
 function a_max(s){return (s.settings&&s.settings['Leverage & risk'])?
   s.settings['Leverage & risk']['Max open trades']:'?';}
 
+function badge(c){const col=c.ok?'var(--grn)':'var(--red)';
+  return `<span class="tag" style="border-color:${col};color:${col}">${c.ok?'✓':'✗'} ${c.name}</span>`;}
 async function refreshWatch(){
   try{const w=await (await fetch('/api/watchlist')).json();
     $('#wlt').innerHTML=w.watchlist.length?w.watchlist.map(r=>
-      `<tr><td>${r.symbol}</td><td>${r.score??''}</td>
+      `<tr><td>${r.symbol}</td>
        <td>${r.change_pct?r.change_pct.toFixed(0)+'%':''}</td><td>${r.rsi??''}</td>
-       <td>${r.dist_vwap!=null?r.dist_vwap+'%':''}</td>
-       <td>${(r.flags||[]).map(f=>'<span class="tag">'+f+'</span>').join('')}</td>
-       <td class="${r.shortable?'short':'muted'}">${r.shortable?'✅ SHORT':(r.note||'')}</td></tr>`).join('')
-      :'<tr><td colspan="7" class="muted">No qualifying gainers right now</td></tr>';
+       <td class="${r.shortable?'short':'muted'}">${r.shortable?'✅ SHORT':'⛔ no'}</td>
+       <td style="text-align:left;white-space:normal">${(r.checks||[]).map(badge).join(' ')||(r.note||'')}</td></tr>`).join('')
+      :'<tr><td colspan="5" class="muted">No qualifying gainers right now</td></tr>';
     $('#wlage').textContent='· updated '+w.age+'s ago';
   }catch(e){}
+}
+
+function saveKey(){localStorage.setItem('adminkey',$('#adminkey').value);
+  $('#adminmsg').innerHTML='<span class="pos">Key saved in this browser.</span>';}
+async function admin(action){
+  const key=localStorage.getItem('adminkey')||$('#adminkey').value;
+  if(action==='reset'&&!confirm('Reset balance to start and DELETE all trades?'))return;
+  if(action==='close_all'&&!confirm('Close all open trades now?'))return;
+  try{const r=await fetch('/api/admin/'+action,{method:'POST',headers:{'x-admin-key':key}});
+    const j=await r.json();
+    $('#adminmsg').innerHTML=j.ok?('<span class="pos">✅ '+j.msg+'</span>')
+      :('<span class="neg">❌ '+(j.error||'failed')+'</span>');
+    refresh();refreshLogs();
+  }catch(e){$('#adminmsg').innerHTML='<span class="neg">❌ '+e+'</span>';}
 }
 
 async function refreshLogs(){
@@ -435,6 +532,7 @@ async function refreshLogs(){
   }catch(e){}
 }
 
+const _sk=localStorage.getItem('adminkey');if(_sk)$('#adminkey').value=_sk;
 refresh();refreshWatch();refreshLogs();
 setInterval(refresh,5000);
 setInterval(refreshWatch,30000);

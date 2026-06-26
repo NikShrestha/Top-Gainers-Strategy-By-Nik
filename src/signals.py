@@ -148,8 +148,11 @@ def evaluate(c: Candidate, btc_regime: dict | None = None) -> ShortSignal:
         stop_pct = config.MAX_STOP_PCT
         stop = entry * (1 + stop_pct / 100)
 
-    tp1 = entry * (1 - config.TP1_PCT / 100)
-    tp2 = entry * (1 - config.TP2_PCT / 100)
+    # take-profits as $ targets (R = multiple of margin). At fixed leverage L,
+    # a profit of R*margin needs a price move of R/L. Broker recomputes with the
+    # trade's actual leverage; this is the display/estimate.
+    tp1 = entry * (1 - config.TP1_R / config.LEVERAGE)
+    tp2 = entry * (1 - config.TP2_R / config.LEVERAGE)
 
     return ShortSignal(
         symbol=c.symbol,
