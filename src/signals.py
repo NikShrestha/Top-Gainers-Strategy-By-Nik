@@ -144,9 +144,10 @@ def evaluate(c: Candidate, btc_regime: dict | None = None) -> ShortSignal:
     swing_high = ind.recent_swing_high(df, config.SWING_HIGH_LOOKBACK)
     stop = max(swing_high, entry) * (1 + config.STOP_BUFFER_PCT / 100)
     stop_pct = (stop - entry) / entry * 100
-    if stop_pct > config.MAX_STOP_PCT:  # cap how far we're willing to risk
-        stop_pct = config.MAX_STOP_PCT
-        stop = entry * (1 + stop_pct / 100)
+    # clamp the stop into [MIN, MAX]: never so tight that noise shakes us out,
+    # never so wide we risk too much. Dynamic leverage adjusts to keep it safe.
+    stop_pct = min(max(stop_pct, config.MIN_STOP_PCT), config.MAX_STOP_PCT)
+    stop = entry * (1 + stop_pct / 100)
 
     # take-profits as $ targets (R = multiple of margin). At fixed leverage L,
     # a profit of R*margin needs a price move of R/L. Broker recomputes with the

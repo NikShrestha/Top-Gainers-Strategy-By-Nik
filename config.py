@@ -66,6 +66,8 @@ ROUND_NUMBER_TOL_PCT = 1.0
 # Hide the stop just ABOVE the recent swing high (resistance) instead of a fixed %.
 SWING_HIGH_LOOKBACK = 10       # candles to find the high we tuck the stop above
 STOP_BUFFER_PCT = 0.5          # place the stop this % above that high
+MIN_STOP_PCT = 4.0             # NEVER place the stop tighter than this -- analysis
+                               # showed <1% stops got noise-shaken out before the dump
 MAX_STOP_PCT = 6.0             # wider stop so trades survive the pump's noise before
                                # the dump; dynamic leverage drops to keep it safe
 
@@ -92,8 +94,8 @@ MAX_CONCURRENT_TRADES = 3      # never hold more than 3 shorts at once (user set
 USE_FIXED_LEVERAGE = False
 
 # Cooldown: after a trade on a coin closes, don't re-enter that same coin for this
-# long (stops the bot grinding fees re-shorting one coin 16x like it did to MAGMA).
-SYMBOL_COOLDOWN_MINUTES = 45
+# long (stops the bot grinding one choppy coin like VELVET 6x for small losses).
+SYMBOL_COOLDOWN_MINUTES = 90
 
 # --- the wall in front of liquidation ---
 # At 20x, liquidation is ~5% of adverse price move away. We hard-stop BEFORE that
