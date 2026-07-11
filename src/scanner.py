@@ -45,8 +45,11 @@ def _still_strong_uptrend(df: pd.DataFrame) -> bool:
     return bool(making_new_high and rising_volume)
 
 
-def analyze_symbol(g: dict, funding: dict[str, float] | None = None) -> Candidate | None:
-    df = bd.get_klines(g["symbol"], config.SCAN_INTERVAL, config.KLINES_LIMIT)
+def analyze_symbol(g: dict, funding: dict[str, float] | None = None,
+                   df=None) -> Candidate | None:
+    # df can be supplied (e.g. by the backtester replaying history); else fetch live
+    if df is None:
+        df = bd.get_klines(g["symbol"], config.SCAN_INTERVAL, config.KLINES_LIMIT)
     if len(df) < 50:
         return None
 

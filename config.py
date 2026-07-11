@@ -36,7 +36,7 @@ PUMP_MAX_CANDLES = 96          # the recent pump's launchpad is the lowest low w
 # ---------------------------------------------------------------------------
 # Over-extension / entry confirmation (Phase 3 will use these)
 # ---------------------------------------------------------------------------
-RSI_OVERBOUGHT = 75.0          # short candidates should be overbought
+RSI_OVERBOUGHT = 70.0          # short candidates should be overbought (backtest: 70>75)
 MIN_DIST_ABOVE_VWAP_PCT = 2.0  # price should be stretched this far above VWAP
 MIN_CONFIRMATIONS = 2          # how many "momentum dying" signs needed to short
                                # (raise to 3 = more conservative, fewer trades)
@@ -66,10 +66,10 @@ ROUND_NUMBER_TOL_PCT = 1.0
 # Hide the stop just ABOVE the recent swing high (resistance) instead of a fixed %.
 SWING_HIGH_LOOKBACK = 10       # candles to find the high we tuck the stop above
 STOP_BUFFER_PCT = 0.5          # place the stop this % above that high
-MIN_STOP_PCT = 4.0             # NEVER place the stop tighter than this -- analysis
-                               # showed <1% stops got noise-shaken out before the dump
-MAX_STOP_PCT = 6.0             # wider stop so trades survive the pump's noise before
-                               # the dump; dynamic leverage drops to keep it safe
+MIN_STOP_PCT = 6.0             # NEVER place the stop tighter than this. Backtest over
+                               # 93 trades: 2.5%->PF0.78, 4%->0.88, 6%->1.09. Wider
+                               # stops let trades survive noise before the dump.
+MAX_STOP_PCT = 8.0             # dynamic leverage drops (to ~7-9x) to keep these safe
 
 # Dynamic leverage: video 1 warns 20x often insta-stops on fast coins. Pick the
 # highest leverage <= LEVERAGE that keeps liquidation comfortably beyond the stop.
